@@ -18,16 +18,9 @@ class SEMDataset(Dataset):
             assert os.path.isdir(self._sem_dir)
             self._sem_fnames = os.listdir(self._sem_dir)
 
-            # filenames = os.listdir(self._sem_dir)
-            # self._sem_fnames = [os.path.join(self._sem_dir, f) for f in filenames]
-            # print(self._sem_fnames[0][:-9].split("/")[-1])
-
             if mode != "Test":
                 self._depth_dir = os.path.join(self._path, "Depth")
                 assert os.path.isdir(self._depth_dir)
-
-                # filenames = os.listdir(self._depth_dir)
-                # self._dpt_fnames = [os.path.join(self._depth_dir, f) for f in filenames]
         else:
             raise IOError(f"{self._path} should be dir")
 
@@ -43,9 +36,17 @@ class SEMDataset(Dataset):
             dpt_name = self._sem_fnames[idx][:-9]
             dpt_path = os.path.join(self._depth_dir, f"{dpt_name}.png")
             dpt_img = Image.open(dpt_path)
-            return self._transform(sem_img), self._transform(dpt_img)
+            return {
+                'sem' : self._transform(sem_img), 
+                'depth' : self._transform(dpt_img),
+                # 'filename' : self._sem_fnames[idx],
+            }
         else:
-            return self._transform(sem_img), 0
+            return {
+                'sem' : self._transform(sem_img), 
+                'depth' : 0,
+                # 'filename' : self._sem_fnames[idx],
+            }
 
 
 def unzip_dir(zip_path):
@@ -64,17 +65,21 @@ if __name__=="__main__":
     if not os.path.exists(zip_path):
         raise IOError(f"{zip_path} does not exists")
 
-    if not os.path.isdir(zip_path[:-4]):
+    data_dir = zip_path[:-4]
+
+    if not os.path.isdir(data_dir):
+        print("Unzip dataset.")
         unzip_dir(zip_path)
-        data_dir = zip_path[:-4]
     else:
-        data_dir = zip_path[:-4]
-        print("dataset ready")
+        print("Dataset ready unzipped.")
 
     train_dataset = SEMDataset(path=data_dir, mode="Train")
-    sem, dpt = train_dataset[0]
-    print(sem.shape)
-    print(dpt.shape)
+    sample = train_dataset[0]
+    print(sample['sem'].shape)
+    print(sample['depth'].shape)
+    print(sample['filename'])
+
+    print(sample['depth'].tolist())
 
     # val_dataset = SEMDataset(path=data_dir, mode="Validation")
     # test_dataset = SEMDataset(path=data_dir, mode="Test")
