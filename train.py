@@ -4,6 +4,7 @@ import os
 import random
 import time
 import json
+import math
 
 import wandb
 import torch
@@ -95,6 +96,10 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    # for reproducibility
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
     
     # check dataset directory
     assert os.path.isdir(args.dataset_dir), f'{args.dataset_dir} is not a directory.'
@@ -102,6 +107,8 @@ def main():
     # load dataset
     train_dataset = SEMDataset(path=args.dataset_dir, mode="Train")
     validation_dataset = SEMDataset(path=args.dataset_dir, mode="Validation")
+
+    num_validation = len(validation_dataset)
 
     # make output directory to save checkpoints, etc.
     print(f'Generate output directory : {args.output_dir}')
@@ -134,14 +141,16 @@ def main():
     logger.info(f'# train samples      : {len(train_loader)} * {args.batch_size} = {len(train_loader) * args.batch_size}')
     logger.info(f'# validation samples : {len(validation_loader)} * {args.batch_size} = {len(validation_loader) * args.batch_size}')
 
-    logger.info('Init model.')
+    # init model
+    logger.info('Init model....')
     model = UNet(n_channels=1, n_classes=1, bilinear=False).to('cuda')
 
+    # print # trained params
     total_param = 0
     for name, param in model.named_parameters():
         total_param += param.numel()
-    logger.info(f'# trained param : {total_param}')
-
+    logger.info(f'# trained param      : {total_param}')
+    
     # init wandb
     db = wandb.init(project="U-net", resume="allow", anonymous='must')
     db.config.update(dict(
@@ -156,7 +165,10 @@ def main():
     # mse loss?
     # criterion = torch.nn.CrossEntropyLoss()
     criterion = torch.nn.MSELoss()
+    rmse_criterion = torch.nn.MSELoss(reduction='sum')
     global_step = 0
+    best_eval_loss = float('inf')
+    early_stop_count = 0
 
     # TRAIN!
     for epoch in range(1, args.epochs+1):
@@ -184,6 +196,75 @@ def main():
             epoch_loss += loss.item()
 
             db.log({'train loss': loss.item()})
+
+        # EVALUATE !
+        model.eval()
+        # log weights
+        histograms = {}
+        for name, param in model.named_parameters():
+            name = name.replace('/', '.')
+            histograms['Weights/' + name] = wandb.Histogram(param.data.cpu())
+            histograms['Gradients/' + name] = wandb.Histogram(param.grad.data.cpu())
+
+        eval_loss = 0
+        for eval_sample in tqdm(validation_loader, desc=f"EVAL"):
+            # shape : (batch, 1, w, h)
+            sem, depth = eval_sample['sem'], eval_sample['depth']
+            assert sem.shape[1] == 1
+            assert depth.shape[1] == 1
+
+            # shape : (batch, 1, w, h)
+            sem = sem.to('cuda', dtype=torch.float32)
+            depth = depth.to('cuda', dtype=torch.float32)
+
+            with torch.no_grad():
+                # shape : (batch, 1, w, h)
+                prediction = model(sem)
+                # calculate the squared error (mean x)
+                loss = rmse_criterion(prediction, depth)
+                eval_loss += loss.item()
+        
+        # calculate rmse
+        eval_loss = math.sqrt(eval_loss / num_validation)
+
+        db.log({
+            'learning rate': optimizer.param_groups[0]['lr'],
+            'validation RMSE': eval_loss,
+            'sem': wandb.Image(sem[0].cpu()),
+            'masks': {
+                'depth': wandb.Image(depth[0].float().cpu()),
+                'prediction': wandb.Image(prediction[0].float().cpu()),
+            },
+            'step': global_step,
+            'epoch': epoch,
+            **histograms
+        })
+
+        # for early stopping
+        if best_eval_loss > eval_loss:
+            best_eval_loss = eval_loss
+            early_stop_count = 0
+
+            print('Best model! Saving model...')
+            output_file = os.path.join(args.output_dir, f'checkpoint.pth')
+            # if file exits, remove (overwrite)
+            if os.path.isfile(output_file):
+                os.remove(output_file)
+            # save model
+            torch.save(model.state_dict(), output_file)
+        else:
+            early_stop_count += 1
+            print(f'Early stop : {early_stop_count} / {args.early_stop}')
+
+            if early_stop_count > args.early_stop:
+                print('Early Stop.')
+                break
+
+        print(f'Best RMSE loss : {best_eval_loss}')
+
+
+
+
 
 
 
