@@ -32,20 +32,21 @@ class SEMDataset(Dataset):
     def __getitem__(self, idx):
         sem_path = os.path.join(self._sem_dir, self._sem_fnames[idx])
         sem_img = Image.open(sem_path)
+        sem_img = transforms.functional.adjust_contrast(img=self._transform(sem_img), contrast_factor=1.5)
         if self._mode != "Test":
             dpt_name = self._sem_fnames[idx][:-9]
             dpt_path = os.path.join(self._depth_dir, f"{dpt_name}.png")
             dpt_img = Image.open(dpt_path)
             return {
-                'sem' : self._transform(sem_img), 
+                'sem' : sem_img,
                 'depth' : self._transform(dpt_img),
                 # 'filename' : self._sem_fnames[idx],
             }
         else:
             return {
-                'sem' : self._transform(sem_img), 
+                'sem' : sem_img,
                 'depth' : 0,
-                # 'filename' : self._sem_fnames[idx],
+                'filename' : self._sem_fnames[idx],
             }
 
 
