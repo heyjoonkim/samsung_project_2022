@@ -5,7 +5,7 @@ import random
 import time
 import json
 import math
-
+import torchvision.transforms as transforms
 import wandb
 import torch
 from torch.utils.data import DataLoader
@@ -72,6 +72,8 @@ def main():
     model = UNet(n_channels=1, n_classes=1, bilinear=False).to('cuda')
     model.load_state_dict(torch.load(f"{args.output_dir}/checkpoint.pth"))
 
+    transform = transforms.ToPILImage()
+
     for test_sample in tqdm(test_loader, desc=f"TEST"):
         # shape : (batch, 1, w, h)
         sem, filename = test_sample['sem'], test_sample['filename'][0]
@@ -84,11 +86,14 @@ def main():
             # shape : (batch, 1, w, h)
             prediction = model(sem)
 
-        save_image(prediction[0].cpu(), f"{args.result_dir}/{filename}")
+        img = transform(prediction[0].cpu())
+        img.convert("L").save(f"{args.result_dir}/{filename}")
+        
 
 
 if __name__ == "__main__":
     start_time = time.time()
     main()
+
     end_time = time.time()
     print(f'Total runtime : {end_time - start_time} sec.')
