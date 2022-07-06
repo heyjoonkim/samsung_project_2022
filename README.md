@@ -1,6 +1,3 @@
-# samsung_project_2022
+# Topics in Machine Intelligence (2022 Spring)
 
-
-## TODO 
-- lr scheduler
-- other tricks?
+## Final Project
